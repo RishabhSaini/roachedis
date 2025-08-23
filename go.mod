@@ -1,4 +1,4 @@
-module kvstore
+module kvstore-cdc
 
 go 1.24.5
 

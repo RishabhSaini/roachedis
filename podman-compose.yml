@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  # --- Region: us-east-1 ---
+  app-us-east-1:
+    image: kv-server-app
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgresql://root@roach1:26257/defaultdb?sslmode=disable
+      - REDIS_URL=redis1:6379
+    networks:
+      - roach-net
+    depends_on:
+      - roach1
+      - redis1
+
+  cache-hydrator-us-east-1:
+    image: kv-hydrator-app
+    environment:
+      - DATABASE_URL=postgresql://root@roach1:26257/defaultdb?sslmode=disable
+      - REDIS_URL=redis1:6379
+    networks:
+      - roach-net
+    depends_on:
+      - roach1
+      - redis1
+
+  redis1:
+    image: redis:latest
+    hostname: redis1
+    networks:
+      - roach-net
+
+  # --- Region: us-west-1 ---
+  app-us-west-1:
+    image: kv-server-app
+    ports:
+      - "8081:8080"
+    environment:
+      - DATABASE_URL=postgresql://root@roach2:26257/defaultdb?sslmode=disable
+      - REDIS_URL=redis2:6379
+    networks:
+      - roach-net
+    depends_on:
+      - roach2
+      - redis2
+
+  cache-hydrator-us-west-1:
+    image: kv-hydrator-app
+    environment:
+      - DATABASE_URL=postgresql://root@roach2:26257/defaultdb?sslmode=disable
+      - REDIS_URL=redis2:6379
+    networks:
+      - roach-net
+    depends_on:
+      - roach2
+      - redis2
+
+  redis2:
+    image: redis:latest
+    hostname: redis2
+    networks:
+      - roach-net
+
+  # --- Region: eu-west-1 ---
+  app-eu-west-1:
+    image: kv-server-app
+    ports:
+      - "8082:8080"
+    environment:
+      - DATABASE_URL=postgresql://root@roach3:26257/defaultdb?sslmode=disable
+      - REDIS_URL=redis3:6379
+    networks:
+      - roach-net
+    depends_on:
+      - roach3
+      - redis3
+
+  cache-hydrator-eu-west-1:
+    image: kv-hydrator-app
+    environment:
+      - DATABASE_URL=postgresql://root@roach3:26257/defaultdb?sslmode=disable
+      - REDIS_URL=redis3:6379
+    networks:
+      - roach-net
+    depends_on:
+      - roach3
+      - redis3
+
+  redis3:
+    image: redis:latest
+    hostname: redis3
+    networks:
+      - roach-net
+  
+  # --- CockroachDB Cluster ---
+  roach1:
+    image: cockroachdb/cockroach:latest-v23.2
+    hostname: roach1
+    networks:
+      - roach-net
+    ports:
+      - "26257:26257"
+      - "8180:8080"
+    command: start --insecure --join=roach1,roach2,roach3 --listen-addr=roach1:26257
+
+  roach2:
+    image: cockroachdb/cockroach:latest-v23.2
+    hostname: roach2
+    networks:
+      - roach-net
+    ports:
+      - "26258:26257"
+      - "8181:8080"
+    command: start --insecure --join=roach1,roach2,roach3 --listen-addr=roach2:26257
+
+  roach3:
+    image: cockroachdb/cockroach:latest-v23.2
+    hostname: roach3
+    networks:
+      - roach-net
+    ports:
+      - "26259:26257"
+      - "8182:8080"
+    command: start --insecure --join=roach1,roach2,roach3 --listen-addr=roach3:26257
+
+  roach-init:
+    image: cockroachdb/cockroach:latest-v23.2
+    networks:
+      - roach-net
+    depends_on:
+      - roach1
+      - roach2
+      - roach3
+    command: ["init", "--insecure", "--host=roach1"]
+
+networks:
+  roach-net:
+

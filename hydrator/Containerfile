@@ -1,0 +1,24 @@
+# Stage 1: Build the Go cache hydrator
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /app
+
+# Copy module files from the parent directory
+COPY ../go.mod ../go.sum ./
+RUN go mod download
+
+# Copy only the hydrator source code from the current directory
+COPY ./hydrator/cache_hydrator.go .
+
+# Build the application statically
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o cache-hydrator cache_hydrator.go
+
+# Stage 2: Create the final, small image
+FROM alpine:latest
+
+WORKDIR /root/
+
+# Copy the built binary from the builder stage
+COPY --from=builder /app/cache-hydrator .
+
+CMD ["./cache-hydrator"]

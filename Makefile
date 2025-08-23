@@ -1,81 +1,63 @@
-# Makefile for the Go Key-Value Store Project (using Podman)
+# Makefile for the Go Key-Value Store Project (CDC Version)
 
-# Variables for Podman container names to ensure consistency
-ROACH_CONTAINER_NAME=roach-kv-store
-REDIS_CONTAINER_NAME=redis-kv-store
+# Define image names for our services
+SERVER_IMAGE_NAME=kv-server-app
+HYDRATOR_IMAGE_NAME=kv-hydrator-app
 
-# Default target runs when you just type 'make'. It lists the available commands.
 .PHONY: all
 all:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  init     - Initializes the Go module and downloads dependencies."
-	@echo "  setup    - Starts the CockroachDB and Redis Podman containers."
-	@echo "  run      - Builds and runs the main key-value server."
-	@echo "  test     - Builds and runs the test client against the server."
-	@echo "  clean    - Stops and removes the Podman containers."
-	@echo ""
-	@echo "Example Workflow:"
-	@echo "1. In one terminal, run 'make init' (only needed once)."
-	@echo "2. Then run 'make setup' to start the databases."
-	@echo "3. In the same terminal, run 'make run' to start the server."
-	@echo "4. In a second terminal, run 'make test' to test the server."
-	@echo "5. When finished, run 'make clean' to stop the services."
+	@echo "  init          - Initializes the Go module and downloads dependencies (run once)."
+	@echo "  build         - Builds the container images for the server and hydrator."
+	@echo "  compose       - Builds images if needed, then starts the full environment."
+	@echo "  test          - Runs the comprehensive Go test client against the live environment."
+	@echo "  down          - Stops and removes the entire environment."
 
 
 # Target to initialize the Go module and download dependencies
 .PHONY: init
 init:
 	@echo "--- Initializing Go module and downloading dependencies... ---"
-	@go mod init kvstore
+	@go mod init kvstore-cdc
 	@go mod tidy
 	@echo "--- Go module initialized. ---"
 
 
-# Target to set up the required services (CockroachDB and Redis)
-.PHONY: setup
-setup:
-	@echo "--- Starting CockroachDB container ($(ROACH_CONTAINER_NAME))... ---"
-	@podman run -d --name=$(ROACH_CONTAINER_NAME) \
-		-p 26257:26257 \
-		-p 8081:8080 \
-		cockroachdb/cockroach:latest-v23.2 start-single-node --insecure
+# Target to build both service images
+.PHONY: build
+build:
+	@echo "--- Building API Server image... ---"
+	@podman build -t $(SERVER_IMAGE_NAME) -f server/Containerfile .
 
-	@echo "--- Starting Redis container ($(REDIS_CONTAINER_NAME))... ---"
-	@podman run -d --name=$(REDIS_CONTAINER_NAME) \
-		-p 6379:6379 \
-		redis:latest
-
-	@echo "\n--> Waiting for services to initialize (5 seconds)..."
-	@sleep 5
-	@echo "--> Setup complete. CockroachDB UI is now on http://localhost:8081"
+	@echo "--- Building Cache Hydrator image... ---"
+	@podman build -t $(HYDRATOR_IMAGE_NAME) -f hydrator/Containerfile .
 
 
-# Target to build and run the main Go server application.
-# Assumes the server code is in a file named 'kv_store_go.go'.
-.PHONY: run
-run:
-	@echo "--- Building and running the key-value server... (Press Ctrl+C to stop) ---"
-	@go run kv_store_go.go
+# Target to start the entire geo-distributed environment using podman-compose
+.PHONY: compose
+compose: build
+	@echo "--- Starting the CDC environment with Podman Compose... ---"
+	@podman-compose up -d
+	@echo "\n--> Environment is starting in the background."
+	@echo "--> API Server available at: http://localhost:8080"
+	@echo "--> CockroachDB UI at http://localhost:8180"
+	@echo "--> Waiting for cluster and hydrator to initialize..."
+	@sleep 20
 
 
-# Target to build and run the Go test client.
-# Assumes the test client code is in a file named 'kv_test_go.go'.
+# Target to run the comprehensive Go test client
 .PHONY: test
 test:
-	@echo "--- Building and running the test client... ---"
+	@echo "--- Running Comprehensive Go Test Client... ---"
 	@go run kv_test_go.go
 
 
-# Target to stop and remove the Podman containers to clean up the environment.
-# The '-' before the commands ignores errors (e.g., if a container is not running).
-.PHONY: clean
-clean:
-	@echo "--- Stopping and removing Podman containers... ---"
-	@-podman stop $(ROACH_CONTAINER_NAME) 2>/dev/null || true
-	@-podman rm $(ROACH_CONTAINER_NAME) 2>/dev/null || true
-	@-podman stop $(REDIS_CONTAINER_NAME) 2>/dev/null || true
-	@-podman rm $(REDIS_CONTAINER_NAME) 2>/dev/null || true
+# Target to stop and remove all containers defined in podman-compose.yml
+.PHONY: down
+down:
+	@echo "--- Stopping and removing all environment containers... ---"
+	@podman-compose down
 	@echo "--- Cleanup complete. ---"
 

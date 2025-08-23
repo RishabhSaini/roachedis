@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
-// Configuration for the test client
+// Define the URLs for our regional servers
 const (
-	baseURL = "http://localhost:8080/kv"
-	testKey = "go-test-key-456"
+	serverUSEast = "http://localhost:8080"
+	serverUSWest = "http://localhost:8081"
+	serverEUWest = "http://localhost:8082"
+	testKey      = "comprehensive-geo-test-key"
 )
 
 // A simple struct to decode the server's GET response
@@ -21,14 +23,14 @@ type GetResponse struct {
 	Value string `json:"value"`
 }
 
-// A helper function to print formatted headers
+// --- Helper Functions ---
+
 func printHeader(title string) {
 	fmt.Println("\n=================================================")
 	fmt.Printf(" %s\n", title)
 	fmt.Println("=================================================")
 }
 
-// A helper function to check for errors and exit if one occurs
 func checkErr(err error, message string) {
 	if err != nil {
 		fmt.Printf("FATAL ERROR: %s - %v\n", message, err)
@@ -36,15 +38,12 @@ func checkErr(err error, message string) {
 	}
 }
 
-func main() {
+// A generic client to perform a PUT request
+func putValue(serverURL, key, value string) {
+	fmt.Printf("-> PUT to %s with value '%s'\n", serverURL, value)
 	client := &http.Client{}
-
-	// --- 1. Test PUT (Create) ---
-	printHeader("1. Testing PUT (Create)")
-	putValue1 := "hello-from-go"
-	fmt.Printf("Sending value '%s' to key '%s'...\n", putValue1, testKey)
-	putBody1, _ := json.Marshal(map[string]string{"value": putValue1})
-	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", baseURL, testKey), bytes.NewBuffer(putBody1))
+	putBody, _ := json.Marshal(map[string]string{"value": value})
+	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/kv/%s", serverURL, key), bytes.NewBuffer(putBody))
 	checkErr(err, "Creating PUT request")
 	req.Header.Set("Content-Type", "application/json")
 
@@ -52,109 +51,105 @@ func main() {
 	checkErr(err, "Executing PUT request")
 	defer resp.Body.Close()
 
-	fmt.Printf("-> Server responded with status: %s\n", resp.Status)
 	if resp.StatusCode != http.StatusCreated {
-		fmt.Println("   FAIL: Expected status 201 Created")
+		fmt.Printf("   FAIL: Expected status 201 Created, but got %s\n", resp.Status)
 	} else {
-		fmt.Println("   PASS: Received expected status 201 Created")
+		fmt.Printf("   PASS: Received expected status %s\n", resp.Status)
 	}
+}
 
-	// --- 2. Test GET (Read) ---
-	printHeader("2. Testing GET (Read)")
-	fmt.Printf("Retrieving key '%s'...\n", testKey)
-	resp, err = http.Get(fmt.Sprintf("%s/%s", baseURL, testKey))
+// A generic client to perform a GET request and verify the value
+func getValue(serverURL, key, expectedValue string, expectFound bool) {
+	fmt.Printf("-> GET from %s, expecting value '%s' (found=%t)\n", serverURL, expectedValue, expectFound)
+	resp, err := http.Get(fmt.Sprintf("%s/kv/%s", serverURL, key))
 	checkErr(err, "Executing GET request")
 	defer resp.Body.Close()
 
-	fmt.Printf("-> Server responded with status: %s\n", resp.Status)
+	if !expectFound {
+		if resp.StatusCode == http.StatusNotFound {
+			fmt.Printf("   PASS: Received expected status %s\n", resp.Status)
+		} else {
+			fmt.Printf("   FAIL: Expected status 404 Not Found, but got %s\n", resp.Status)
+		}
+		return
+	}
+
 	if resp.StatusCode == http.StatusOK {
 		var getResp GetResponse
 		err = json.NewDecoder(resp.Body).Decode(&getResp)
 		checkErr(err, "Decoding GET response")
-		fmt.Printf("   Received value: '%s'\n", getResp.Value)
-		if getResp.Value == putValue1 {
-			fmt.Println("   PASS: Value matches what was sent.")
+		if getResp.Value == expectedValue {
+			fmt.Printf("   PASS: Received expected value '%s'\n", getResp.Value)
 		} else {
-			fmt.Printf("   FAIL: Expected '%s' but got '%s'\n", putValue1, getResp.Value)
+			fmt.Printf("   FAIL: Expected '%s' but got '%s'\n", expectedValue, getResp.Value)
 		}
 	} else {
 		fmt.Printf("   FAIL: Expected status 200 OK, but got %s\n", resp.Status)
 	}
+}
 
-	// --- 3. Test PUT (Update) ---
-	printHeader("3. Testing PUT (Update)")
-	putValue2 := "updated-value-from-go"
-	fmt.Printf("Sending updated value '%s' to key '%s'...\n", putValue2, testKey)
-	putBody2, _ := json.Marshal(map[string]string{"value": putValue2})
-	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", baseURL, testKey), bytes.NewBuffer(putBody2))
-	checkErr(err, "Creating update PUT request")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err = client.Do(req)
-	checkErr(err, "Executing update PUT request")
-	defer resp.Body.Close()
-
-	fmt.Printf("-> Server responded with status: %s\n", resp.Status)
-	if resp.StatusCode != http.StatusCreated {
-		fmt.Println("   FAIL: Expected status 201 Created")
-	} else {
-		fmt.Println("   PASS: Received expected status 201 Created")
-	}
-
-	// --- 4. Test GET (Verify Update) ---
-	printHeader("4. Testing GET (Verify Update)")
-	fmt.Printf("Retrieving key '%s' again...\n", testKey)
-	resp, err = http.Get(fmt.Sprintf("%s/%s", baseURL, testKey))
-	checkErr(err, "Executing GET request after update")
-	defer resp.Body.Close()
-
-	fmt.Printf("-> Server responded with status: %s\n", resp.Status)
-	if resp.StatusCode == http.StatusOK {
-		var getResp GetResponse
-		err = json.NewDecoder(resp.Body).Decode(&getResp)
-		checkErr(err, "Decoding GET response after update")
-		fmt.Printf("   Received value: '%s'\n", getResp.Value)
-		if getResp.Value == putValue2 {
-			fmt.Println("   PASS: Value matches the updated value.")
-		} else {
-			fmt.Printf("   FAIL: Expected '%s' but got '%s'\n", putValue2, getResp.Value)
-		}
-	} else {
-		fmt.Printf("   FAIL: Expected status 200 OK, but got %s\n", resp.Status)
-	}
-
-	// --- 5. Test DELETE ---
-	printHeader("5. Testing DELETE")
-	fmt.Printf("Deleting key '%s'...\n", testKey)
-	req, err = http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/%s", baseURL, testKey), nil)
+// A generic client to perform a DELETE request
+func deleteValue(serverURL, key string) {
+	fmt.Printf("-> DELETE from %s for key '%s'\n", serverURL, key)
+	client := &http.Client{}
+	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/kv/%s", serverURL, key), nil)
 	checkErr(err, "Creating DELETE request")
 
-	resp, err = client.Do(req)
+	resp, err := client.Do(req)
 	checkErr(err, "Executing DELETE request")
 	defer resp.Body.Close()
 
-	fmt.Printf("-> Server responded with status: %s\n", resp.Status)
 	if resp.StatusCode == http.StatusOK {
-		fmt.Println("   PASS: Received expected status 200 OK")
+		fmt.Printf("   PASS: Received expected status %s\n", resp.Status)
 	} else {
 		fmt.Printf("   FAIL: Expected status 200 OK, but got %s\n", resp.Status)
 	}
+}
 
-	// --- 6. Test GET (Verify Delete) ---
-	printHeader("6. Testing GET (Verify Delete)")
-	fmt.Printf("Retrieving deleted key '%s'...\n", testKey)
-	resp, err = http.Get(fmt.Sprintf("%s/%s", baseURL, testKey))
-	checkErr(err, "Executing GET request after delete")
-	defer resp.Body.Close()
+// --- Main Test Execution ---
+func main() {
+	printHeader("Starting Comprehensive Geo-Distributed Test")
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	fmt.Printf("-> Server responded with status: %s\n", resp.Status)
-	fmt.Printf("   Response body: %s\n", string(bodyBytes))
-	if resp.StatusCode == http.StatusNotFound {
-		fmt.Println("   PASS: Received expected status 404 Not Found")
-	} else {
-		fmt.Printf("   FAIL: Expected status 404 Not Found, but got %s\n", resp.Status)
-	}
+	// 1. Write to US-East
+	initialValue := "data-from-east"
+	putValue(serverUSEast, testKey, initialValue)
 
-	fmt.Println("\n--- Test complete ---")
+	// Wait for replication to occur
+	fmt.Println("\n... Waiting 3 seconds for replication ...")
+	time.Sleep(3 * time.Second)
+
+	// 3. Read from all regions
+	printHeader("Test 2: Read Data from all")
+	getValue(serverUSEast, testKey, initialValue, true)
+	getValue(serverUSWest, testKey, initialValue, true)
+	getValue(serverEUWest, testKey, initialValue, true)
+
+	// 4. Update from US-West
+	printHeader("Test 3: Update Value from a Different Region")
+	updatedValue := "updated-in-the-west"
+	putValue(serverUSWest, testKey, updatedValue)
+
+	fmt.Println("\n... Waiting 3 seconds for replication ...")
+	time.Sleep(3 * time.Second)
+
+	// 5. Read the update from all regions
+	printHeader("Test 4: Verify Replicated Update")
+	getValue(serverUSEast, testKey, updatedValue, true)
+	getValue(serverUSWest, testKey, updatedValue, true)
+	getValue(serverEUWest, testKey, updatedValue, true)
+
+	// 6. Cleanup: Delete from any region
+	printHeader("Test 5: Delete Key")
+	deleteValue(serverEUWest, testKey)
+
+	fmt.Println("\n... Waiting 3 seconds for replication ...")
+	time.Sleep(3 * time.Second)
+
+	// 7. Verify deletion across all regions
+	printHeader("Test 6: Verify Deletion Across All Regions")
+	getValue(serverUSEast, testKey, "", false)
+	getValue(serverUSWest, testKey, "", false)
+	getValue(serverEUWest, testKey, "", false)
+
+	printHeader("Comprehensive Test Complete")
 }
