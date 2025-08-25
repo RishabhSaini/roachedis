@@ -4,6 +4,10 @@
 SERVER_IMAGE_NAME=kv-server-app
 HYDRATOR_IMAGE_NAME=kv-hydrator-app
 
+# Variables for gofmt
+GOFMT := gofmt
+GOFILES := $(shell find . -type f -name '*.go')
+
 .PHONY: all
 all:
 	@echo "Usage: make [target]"
@@ -14,6 +18,7 @@ all:
 	@echo "  compose       - Builds images if needed, then starts the full environment."
 	@echo "  test          - Runs the comprehensive Go test client against the live environment."
 	@echo "  down          - Stops and removes the entire environment."
+	@echo "  format        - Formats all Go files in the project."
 
 
 # Target to initialize the Go module and download dependencies
@@ -61,3 +66,10 @@ down:
 	@podman-compose down
 	@echo "--- Cleanup complete. ---"
 
+
+# Target to format all Go files recursively
+.PHONY: format
+format:
+	@echo "Running gofmt on all Go files..."
+	$(GOFMT) -w $(GOFILES)
+	@echo "Go files have been formatted."
