@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	_ "github.com/lib/pq"
@@ -24,7 +25,6 @@ type ChangefeedMessage struct {
 }
 
 func main() {
-	// Get connection details from environment variables
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL environment variable is not set")
@@ -34,31 +34,57 @@ func main() {
 		log.Fatal("REDIS_URL environment variable is not set")
 	}
 
-	// Connect to Redis
 	redisClient = redis.NewClient(&redis.Options{Addr: redisURL})
 	if _, err := redisClient.Ping(ctx).Result(); err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 	log.Println("Cache Hydrator connected to Redis.")
 
-	// Connect to CockroachDB
-	db, err := sql.Open("postgres", dbURL)
+	var db *sql.DB
+	var err error
+	maxRetries := 10
+	retryDelay := 2 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		db, err = sql.Open("postgres", dbURL)
+		if err == nil {
+			err = db.Ping()
+			if err == nil {
+				log.Println("Cache Hydrator connected to CockroachDB.")
+				break
+			}
+		}
+		log.Printf("Could not connect to CockroachDB, retrying in %v... (%d/%d)", retryDelay, i+1, maxRetries)
+		time.Sleep(retryDelay)
+	}
+
 	if err != nil {
-		log.Fatalf("Failed to connect to CockroachDB: %v", err)
+		log.Fatalf("Failed to connect to CockroachDB after %d retries: %v", maxRetries, err)
 	}
 	defer db.Close()
-	log.Println("Cache Hydrator connected to CockroachDB.")
 
-	// --- Enable the required cluster setting ---
+	// Hydrator is now responsible for creating the table
+	createTableSQL := `
+    CREATE TABLE IF NOT EXISTS kv_log (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        key STRING NOT NULL,
+        value STRING,
+        timestamp TIMESTAMPTZ NOT NULL,
+        deleted BOOL DEFAULT FALSE
+    );
+    CREATE INDEX IF NOT EXISTS idx_key_timestamp ON kv_log (key, timestamp DESC);
+    `
+	if _, err := db.Exec(createTableSQL); err != nil {
+		log.Fatalf("Failed to create kv_log table in CockroachDB: %v", err)
+	}
+	log.Println("Table 'kv_log' ensured to exist.")
+
 	log.Println("Ensuring kv.rangefeed.enabled is set to true...")
 	_, err = db.Exec("SET CLUSTER SETTING kv.rangefeed.enabled = true;")
 	if err != nil {
-		// This is not a fatal error, as the setting may already be enabled.
 		log.Printf("Could not enable kv.rangefeed.enabled (might already be set): %v", err)
 	}
 
-	// The CREATE CHANGEFEED statement
-	// We select only the columns we need to minimize data transfer
 	changefeedQuery := `CREATE CHANGEFEED FOR TABLE kv_log WITH updated, resolved, format = json, envelope = wrapped`
 
 	log.Println("Starting CockroachDB changefeed...")
@@ -68,30 +94,30 @@ func main() {
 	}
 	defer rows.Close()
 
-	// Loop forever, processing messages from the changefeed
 	for rows.Next() {
-		var topic string
-		var key []byte // The primary key of the row, which we don't need
-		var value []byte // The JSON payload of the row change
+		// Use sql.NullString to handle checkpoint messages where value is NULL
+		var topic sql.NullString
+		var key sql.NullString // The primary key (UUID) as a string
+		var value sql.NullString // The JSON payload as a string
 
 		if err := rows.Scan(&topic, &key, &value); err != nil {
 			log.Printf("Error scanning changefeed row: %v", err)
 			continue
 		}
 
-		// We only care about the row data, not other changefeed messages
-		if value == nil {
+		// We only care about data rows, which have a valid 'value' payload.
+		// This safely ignores the checkpoint messages where 'value' is NULL.
+		if !value.Valid {
 			continue
 		}
 
-		// Unmarshal the JSON payload from the changefeed
 		var msg ChangefeedMessage
-		if err := json.Unmarshal(value, &msg); err != nil {
+		// Unmarshal the valid JSON string from the changefeed
+		if err := json.Unmarshal([]byte(value.String), &msg); err != nil {
 			log.Printf("Error unmarshaling changefeed message: %v", err)
 			continue
 		}
 
-		// Update Redis based on the message
 		if msg.Deleted {
 			log.Printf("CDC Event: Deleting key '%s' from Redis.", msg.Key)
 			redisClient.Del(ctx, msg.Key)
