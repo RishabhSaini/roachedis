@@ -49,6 +49,14 @@ func main() {
 	defer db.Close()
 	log.Println("Cache Hydrator connected to CockroachDB.")
 
+	// --- Enable the required cluster setting ---
+	log.Println("Ensuring kv.rangefeed.enabled is set to true...")
+	_, err = db.Exec("SET CLUSTER SETTING kv.rangefeed.enabled = true;")
+	if err != nil {
+		// This is not a fatal error, as the setting may already be enabled.
+		log.Printf("Could not enable kv.rangefeed.enabled (might already be set): %v", err)
+	}
+
 	// The CREATE CHANGEFEED statement
 	// We select only the columns we need to minimize data transfer
 	changefeedQuery := `CREATE CHANGEFEED FOR TABLE kv_log WITH updated, resolved, format = json, envelope = wrapped`

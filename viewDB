@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Check if the user provided a SQL query
+if [ -z "$1" ]; then
+  echo "Please provide a SQL query as an argument."
+  exit 1
+fi
+
+# Store the SQL query from the first argument
+SQL_QUERY="$1"
+
+# Get all running CockroachDB container IDs (assuming containers have 'cockroach' in their name)
+CONTAINER_IDS=$(podman ps --filter "ancestor=cockroachdb/cockroach" --format "{{.ID}}")
+
+# Check if there are any CockroachDB containers running
+if [ -z "$CONTAINER_IDS" ]; then
+  echo "No CockroachDB containers are running."
+  exit 1
+fi
+
+# Loop through each container and run the SQL query
+for CONTAINER_ID in $CONTAINER_IDS; do
+  echo "Running SQL query on container $CONTAINER_ID"
+
+  # Run the SQL query on the current container
+  podman exec $CONTAINER_ID cockroach sql --insecure --host=roach1:26257 --execute="$SQL_QUERY"
+  
+  echo "----------------------------------------"
+done

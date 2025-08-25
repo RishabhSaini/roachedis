@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Get all running Redis container IDs
+CONTAINER_IDS=$(podman ps --filter "ancestor=redis" --format "{{.ID}}")
+
+# Check if there are any Redis containers running
+if [ -z "$CONTAINER_IDS" ]; then
+  echo "No Redis containers are running."
+  exit 1
+fi
+
+# Loop through each Redis container and list all keys
+for CONTAINER_ID in $CONTAINER_IDS; do
+  echo "Listing keys in container $CONTAINER_ID"
+  
+  # Run the redis-cli KEYS * command on the current Redis container
+  podman exec -it $CONTAINER_ID redis-cli KEYS '*'
+  
+  echo "----------------------------------------"
+done
