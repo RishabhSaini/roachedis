@@ -1,3 +1,14 @@
+# Run and Test the Project
+
+```
+make init               # Initialize the Go Module and Download Dependencies
+make compose            # Build the Images and Start the env using podman compose
+make test               # Run the comprehensive Go test client (3 regions)
+./viewDB <SQL Query>    # Execute SQl queries on all DB replicas. Ex: "./viewDB "SELECT * FROM kv_log;"
+./viewCache             # View the Redis Cache of all the Regions
+make down               # Stop and remove all the running containers
+```
+
 # Architecture Overview
 
 This project is a geo-distributed key-value store that uses a durable database as the source of truth and regional in-memory caches for fast reads. The system is built on a decoupled, event-driven pattern using Change Data Capture (CDC).
