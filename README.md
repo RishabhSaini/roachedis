@@ -3,6 +3,7 @@
 This project is a geo-distributed key-value store that uses a durable database as the source of truth and regional in-memory caches for fast reads. The system is built on a decoupled, event-driven pattern using Change Data Capture (CDC).
 
 ![Single Node Architecture](diagrams/singleNodeArch.png)
+![Multi Node Architecture](diagrams/multiNodeArch.png)
 
 ## Components
 
