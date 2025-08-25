@@ -117,13 +117,13 @@ func main() {
 	// Wait for replication to occur
 	fmt.Println("\n... Waiting 3 seconds for replication ...")
 	time.Sleep(3 * time.Second)
-
+	
 	// 3. Read from all regions
 	printHeader("Test 2: Read Data from all")
 	getValue(serverUSEast, testKey, initialValue, true)
 	getValue(serverUSWest, testKey, initialValue, true)
 	getValue(serverEUWest, testKey, initialValue, true)
-
+	
 	// 4. Update from US-West
 	printHeader("Test 3: Update Value from a Different Region")
 	updatedValue := "updated-in-the-west"
@@ -131,20 +131,20 @@ func main() {
 
 	fmt.Println("\n... Waiting 3 seconds for replication ...")
 	time.Sleep(3 * time.Second)
-
+	
 	// 5. Read the update from all regions
 	printHeader("Test 4: Verify Replicated Update")
 	getValue(serverUSEast, testKey, updatedValue, true)
 	getValue(serverUSWest, testKey, updatedValue, true)
 	getValue(serverEUWest, testKey, updatedValue, true)
-
+	
 	// 6. Cleanup: Delete from any region
 	printHeader("Test 5: Delete Key")
 	deleteValue(serverEUWest, testKey)
 
 	fmt.Println("\n... Waiting 3 seconds for replication ...")
 	time.Sleep(3 * time.Second)
-
+	
 	// 7. Verify deletion across all regions
 	printHeader("Test 6: Verify Deletion Across All Regions")
 	getValue(serverUSEast, testKey, "", false)
@@ -152,4 +152,5 @@ func main() {
 	getValue(serverEUWest, testKey, "", false)
 
 	printHeader("Comprehensive Test Complete")
+
 }

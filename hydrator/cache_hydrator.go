@@ -17,11 +17,16 @@ var (
 	ctx         = context.Background()
 )
 
-// Represents the structure of the JSON message from the changefeed
+// Represents the actual row data within the changefeed message
 type ChangefeedMessage struct {
 	Key     string `json:"key"`
 	Value   string `json:"value"`
 	Deleted bool   `json:"deleted"`
+}
+
+// Represents the full "wrapped" envelope from the changefeed
+type WrappedChangefeedMessage struct {
+	After ChangefeedMessage `json:"after"`
 }
 
 func main() {
@@ -95,28 +100,28 @@ func main() {
 	defer rows.Close()
 
 	for rows.Next() {
-		// Use sql.NullString to handle checkpoint messages where value is NULL
 		var topic sql.NullString
-		var key sql.NullString // The primary key (UUID) as a string
-		var value sql.NullString // The JSON payload as a string
+		var key sql.NullString
+		var value sql.NullString
 
 		if err := rows.Scan(&topic, &key, &value); err != nil {
 			log.Printf("Error scanning changefeed row: %v", err)
 			continue
 		}
 
-		// We only care about data rows, which have a valid 'value' payload.
-		// This safely ignores the checkpoint messages where 'value' is NULL.
 		if !value.Valid {
 			continue
 		}
 
-		var msg ChangefeedMessage
-		// Unmarshal the valid JSON string from the changefeed
-		if err := json.Unmarshal([]byte(value.String), &msg); err != nil {
+		var wrappedMsg WrappedChangefeedMessage
+		// Unmarshal into the wrapper struct to handle the nested "after" field
+		if err := json.Unmarshal([]byte(value.String), &wrappedMsg); err != nil {
 			log.Printf("Error unmarshaling changefeed message: %v", err)
 			continue
 		}
+
+		// Use the nested 'After' field which contains the actual row data
+		msg := wrappedMsg.After
 
 		if msg.Deleted {
 			log.Printf("CDC Event: Deleting key '%s' from Redis.", msg.Key)
