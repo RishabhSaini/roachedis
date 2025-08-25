@@ -11,10 +11,43 @@ fi
 
 # Loop through each Redis container and list all keys
 for CONTAINER_ID in $CONTAINER_IDS; do
-  echo "Listing keys in container $CONTAINER_ID"
+  echo "Listing keys and values in container $CONTAINER_ID"
   
-  # Run the redis-cli KEYS * command on the current Redis container
-  podman exec -it $CONTAINER_ID redis-cli KEYS '*'
-  
+  # Get the list of all keys in the current Redis container
+  KEYS=$(podman exec $CONTAINER_ID redis-cli KEYS '*')
+
+  # Loop through each key and fetch its value
+  for KEY in $KEYS; do
+    # Get the type of the key
+    TYPE=$(podman exec $CONTAINER_ID redis-cli TYPE "$KEY")
+    
+    # Fetch the value based on the key type
+    case $TYPE in
+      string)
+        VALUE=$(podman exec $CONTAINER_ID redis-cli GET "$KEY")
+        echo "Key: $KEY, Type: $TYPE, Value: $VALUE"
+        ;;
+      hash)
+        VALUE=$(podman exec $CONTAINER_ID redis-cli HGETALL "$KEY")
+        echo "Key: $KEY, Type: $TYPE, Value: $VALUE"
+        ;;
+      list)
+        VALUE=$(podman exec $CONTAINER_ID redis-cli LRANGE "$KEY" 0 -1)
+        echo "Key: $KEY, Type: $TYPE, Value: $VALUE"
+        ;;
+      set)
+        VALUE=$(podman exec $CONTAINER_ID redis-cli SMEMBERS "$KEY")
+        echo "Key: $KEY, Type: $TYPE, Value: $VALUE"
+        ;;
+      zset)
+        VALUE=$(podman exec $CONTAINER_ID redis-cli ZRANGE "$KEY" 0 -1 WITHSCORES)
+        echo "Key: $KEY, Type: $TYPE, Value: $VALUE"
+        ;;
+      *)
+        echo "Key: $KEY, Type: $TYPE (unknown type)"
+        ;;
+    esac
+  done
+
   echo "----------------------------------------"
 done
